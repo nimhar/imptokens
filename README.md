@@ -9,7 +9,7 @@
   <a href="https://github.com/nimhar/imptokens/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-16a34a"></a>
   <a href="https://github.com/nimhar/imptokens"><img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20Apple%20Silicon-111827"></a>
   <a href="https://www.rust-lang.org/"><img alt="Rust" src="https://img.shields.io/badge/rust-1.70%2B-f97316"></a>
-  <a href="https://github.com/nimhar/imptokens/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/nimhar/imptokens?style=social&label=Star&cacheSeconds=60"></a>
+  <a href="https://github.com/nimhar/imptokens/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/nimhar/imptokens?style=flat-square&logo=github&label=Stars"></a>
 </p>
 
 `imptokens` runs a small local model to score each token by surprise (log-probability), keeps the informative tokens, and drops predictable filler. In practice this cuts context size by 30-70% while preserving task-critical meaning.
@@ -49,7 +49,7 @@ git diff HEAD~5 | imptokens --keep-ratio 0.5 --stats
 ## Demo video
 
 <video controls muted playsinline preload="metadata" width="100%">
-  <source src="https://raw.githubusercontent.com/nimhar/imptokens/main/video/out/Imptokens.mp4" type="video/mp4">
+  <source src="https://github.com/nimhar/imptokens/blob/main/video/out/Imptokens.mp4?raw=1" type="video/mp4">
 </video>
 
 ## Real workflow impact
@@ -77,7 +77,7 @@ compress-paste 0.5
 # Paste a denser prompt with lower token spend
 ```
 
-### 4) Auto-compress tool output in hook flow
+### 4) Optional RTK hook flow (only if RTK is installed)
 
 ```text
 rtk read bigfile.py | compress-if-large
@@ -252,7 +252,19 @@ compress-paste 0.3    # more aggressive
 
 ### Automatic bash output compression
 
-When enabled by `install.sh`, selected RTK commands are piped through `compress-if-large`:
+`imptokens` does not require RTK. RTK support is an optional integration.
+
+- Standalone (no RTK): pipe any command through `compress-if-large`.
+- RTK flow: `install.sh` patches `~/.claude/hooks/rtk-rewrite.sh` only if that file exists.
+
+Standalone example:
+
+```bash
+cat bigfile.py | compress-if-large
+git diff HEAD~5 | compress-if-large
+```
+
+Optional RTK hook example:
 
 ```text
 cat bigfile.py    -> rtk read bigfile.py | compress-if-large
