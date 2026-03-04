@@ -22,7 +22,7 @@ git diff HEAD~5 | imptokens --keep-ratio 0.5 --stats
 ## Table of contents
 
 - [Why imptokens](#why-imptokens)
-- [Demo video](#demo-video)
+- [Demo](#demo)
 - [Real workflow impact](#real-workflow-impact)
 - [Quick start](#quick-start)
 - [Installation](#installation)
@@ -46,11 +46,9 @@ git diff HEAD~5 | imptokens --keep-ratio 0.5 --stats
 - Multiple output formats (`text`, `token-ids`, `json`) and token-level debug view.
 - Includes practical Claude Code integration helpers (`compress-if-large`, `compress-paste`, hook mode).
 
-## Demo video
+## Demo
 
-<video controls muted playsinline preload="metadata" width="100%">
-  <source src="https://github.com/nimhar/imptokens/blob/main/video/out/Imptokens.mp4?raw=1" type="video/mp4">
-</video>
+![imptokens demo](video/out/Imptokens.gif)
 
 ## Real workflow impact
 

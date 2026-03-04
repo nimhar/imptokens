@@ -3,5 +3,6 @@ video/*
 !video/out/
 video/out/*
 !video/out/Imptokens.mp4
+!video/out/Imptokens.gif
 .claude/
 .codex/
