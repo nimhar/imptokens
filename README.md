@@ -12,6 +12,8 @@
   <a href="https://github.com/nimhar/imptokens/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/nimhar/imptokens?style=flat-square&logo=github&label=Stars"></a>
 </p>
 
+![imptokens demo](video/out/Imptokens.gif)
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nimhar/imptokens/main/install.sh | bash
 ```
@@ -64,10 +66,6 @@ git diff HEAD~5 | imptokens --threshold=-0.075 --stats
 - CLI-first design for shell pipelines, agent hooks, and LLM API wrappers
 - Multiple output formats (`text`, `token-ids`, `json`) and token-level debug view
 - Includes Claude Code integration helpers (`compress-if-large`, `compress-paste`, hook mode) — optional
-
-## Demo
-
-![imptokens demo](video/out/Imptokens.gif)
 
 ## Real workflow impact
 
