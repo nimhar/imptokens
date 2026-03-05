@@ -21,7 +21,7 @@ class Imptokens < Formula
 
     on_intel do
       url "https://github.com/nimhar/imptokens/releases/download/v#{version}/imptokens-Darwin-x86_64"
-      sha256 "PLACEHOLDER_UPDATE_AFTER_FIRST_RELEASE_X86_64"
+      sha256 "e76be14adcf8c7212828ea42319188d18851db270a95c79cc6cb60ffa960b9e0"
     end
   end
 
