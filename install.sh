@@ -105,7 +105,25 @@ build_from_source() {
     fi
   fi
   if ! command -v cargo &>/dev/null; then
-    die "Rust not found. Install from https://rustup.rs/ and re-run."
+    if [[ "$(uname)" == "Darwin" ]]; then
+      die "Rust not found. Install it with:\n    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh\n  Or skip building entirely:\n    brew tap nimhar/imptokens https://github.com/nimhar/imptokens && brew install imptokens"
+    else
+      die "Rust not found. Install from https://rustup.rs/ and re-run."
+    fi
+  fi
+
+  # Ensure cmake is available (required by llama-cpp-2 build).
+  if ! command -v cmake &>/dev/null; then
+    if [[ "$(uname)" == "Darwin" ]]; then
+      die "cmake not found. Install it with:\n    brew install cmake\n  Or skip building entirely:\n    brew tap nimhar/imptokens https://github.com/nimhar/imptokens && brew install imptokens"
+    else
+      die "cmake not found. Install it with:\n    sudo apt install cmake   # Debian/Ubuntu\n    sudo dnf install cmake   # Fedora"
+    fi
+  fi
+
+  # Ensure C/C++ toolchain is available (macOS needs Xcode CLT).
+  if [[ "$(uname)" == "Darwin" ]] && ! xcode-select -p &>/dev/null; then
+    die "Xcode Command Line Tools not found. Install with:\n    xcode-select --install\n  Or skip building entirely:\n    brew tap nimhar/imptokens https://github.com/nimhar/imptokens && brew install imptokens"
   fi
 
   ok "Rust $(rustc --version | cut -d' ' -f2) — building from source (~2 min on first run)…"
@@ -118,12 +136,36 @@ build_from_source() {
   ok "Binary built → ${BUILT_BINARY}"
 }
 
+# Offer Homebrew as zero-dependency alternative (macOS only).
+try_brew_install() {
+  [[ "$(uname)" != "Darwin" ]] && return 1
+  if ! command -v brew &>/dev/null; then
+    warn "Homebrew not found — cannot offer brew install fallback."
+    return 1
+  fi
+  echo ""
+  if prompt_yn "Install via Homebrew instead? (no Rust/cmake needed)" "n"; then
+    brew tap nimhar/imptokens https://github.com/nimhar/imptokens
+    brew install imptokens
+    ok "Installed via Homebrew."
+    # Homebrew puts it on PATH already; skip our manual install steps.
+    INSTALLED_VIA_BREW=true
+    return 0
+  fi
+  return 1
+}
+
+INSTALLED_VIA_BREW=false
+
 if ! download_binary; then
-  warn "Pre-built binary not available for ${OS}/${ARCH} — building from source."
-  build_from_source
+  warn "Pre-built binary not available for ${OS}/${ARCH} — trying alternatives."
+  if ! try_brew_install; then
+    build_from_source
+  fi
 fi
 
 # ── 4. Install binary ─────────────────────────────────────────────────────────
+if [[ "$INSTALLED_VIA_BREW" != "true" ]]; then
 mkdir -p "$BIN_DIR"
 cp "$BUILT_BINARY" "${BIN_DIR}/${BINARY}"
 ok "Installed → ${BIN_DIR}/${BINARY}"
@@ -171,6 +213,7 @@ SCRIPT
   chmod +x "${BIN_DIR}/compress-paste"
   ok "Installed → ${BIN_DIR}/compress-paste"
 fi
+fi # end !INSTALLED_VIA_BREW
 
 # ── 6. PATH check ─────────────────────────────────────────────────────────────
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "$BIN_DIR"; then
