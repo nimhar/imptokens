@@ -16,12 +16,12 @@ class Imptokens < Formula
   on_macos do
     on_arm do
       url "https://github.com/nimhar/imptokens/releases/download/v#{version}/imptokens-Darwin-arm64"
-      sha256 "aafdeaf0c56238da26e19e7f2ae40f4940b145b18020caa045d6b5c014b002ae"
+      sha256 "369adcd4c4d52382df8284a145de015f28a40fd300a3b34a0b4da7a5e2924946"
     end
 
     on_intel do
       url "https://github.com/nimhar/imptokens/releases/download/v#{version}/imptokens-Darwin-x86_64"
-      sha256 "e76be14adcf8c7212828ea42319188d18851db270a95c79cc6cb60ffa960b9e0"
+      sha256 "5ef5657d7b024243402190227811e17f27593625029bbd6c714d973291d43737"
     end
   end
 
