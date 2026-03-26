@@ -232,7 +232,7 @@ fn extract_query_terms(query: &str) -> HashSet<String> {
 /// score = (overlap × 2) + (overlap / queryTermCount) + min(tokenCount, 40) / 40
 ///         − boilerplatePenalty
 /// ```
-fn score_sentence(
+pub fn score_sentence(
     feat: &SentenceFeatures,
     query_terms: &HashSet<String>,
     query_term_count: usize,
@@ -245,6 +245,53 @@ fn score_sentence(
     (overlap * 2.0) + overlap_ratio + length_score - boilerplate_penalty
 }
 
+/// Hash-based sketch scoring inspired by QJL random projections.
+///
+/// Maps each term to a fixed-size vector (64 dimensions) using FNV-1a hashing,
+/// then computes cosine similarity between the sentence sketch and query sketch.
+/// The final score blends term-overlap (70%) with sketch similarity (30%).
+const SKETCH_DIM: usize = 64;
+
+fn build_sketch(terms: &HashSet<String>) -> [f64; SKETCH_DIM] {
+    let mut sketch = [0.0_f64; SKETCH_DIM];
+    for term in terms {
+        let bucket = (fnv1a_hash(term) as usize) % SKETCH_DIM;
+        sketch[bucket] += 1.0;
+    }
+    sketch
+}
+
+fn cosine_similarity(a: &[f64; SKETCH_DIM], b: &[f64; SKETCH_DIM]) -> f64 {
+    let mut dot = 0.0_f64;
+    let mut norm_a = 0.0_f64;
+    let mut norm_b = 0.0_f64;
+    for i in 0..SKETCH_DIM {
+        dot += a[i] * b[i];
+        norm_a += a[i] * a[i];
+        norm_b += b[i] * b[i];
+    }
+    let denom = norm_a.sqrt() * norm_b.sqrt();
+    if denom < 1e-12 { 0.0 } else { dot / denom }
+}
+
+/// Score a sentence using hash-based sketch similarity combined with term overlap.
+///
+/// Returns `overlap_score * 0.7 + sketch_similarity * 0.3`, capturing both
+/// exact term matches and distributional similarity beyond exact overlap.
+pub fn score_sentence_sketch(
+    feat: &SentenceFeatures,
+    query_terms: &HashSet<String>,
+    query_term_count: usize,
+) -> f64 {
+    let overlap_score = score_sentence(feat, query_terms, query_term_count);
+
+    let sentence_sketch = build_sketch(&feat.unique_terms);
+    let query_sketch = build_sketch(query_terms);
+    let sketch_sim = cosine_similarity(&sentence_sketch, &query_sketch);
+
+    overlap_score * 0.7 + sketch_sim * 0.3
+}
+
 // ─── Options & result ────────────────────────────────────────────────────────
 
 /// Options for `compress_context` / `compress_preprocessed`.
@@ -255,11 +302,13 @@ pub struct CompressContextOptions {
     pub min_tokens: usize,
     /// Maximum number of sentences to keep (default: 10).
     pub max_sentences: usize,
+    /// Use hash-based sketch scoring for distributional similarity (default: false).
+    pub use_sketch: bool,
 }
 
 impl Default for CompressContextOptions {
     fn default() -> Self {
-        Self { target_reduction: 0.45, min_tokens: 80, max_sentences: 10 }
+        Self { target_reduction: 0.45, min_tokens: 80, max_sentences: 10, use_sketch: false }
     }
 }
 
@@ -300,10 +349,15 @@ pub fn compress_preprocessed(
     let query_term_count = query_terms.len();
 
     // Score unique sentences, highest first.
+    let scorer: fn(&SentenceFeatures, &HashSet<String>, usize) -> f64 = if opts.use_sketch {
+        score_sentence_sketch
+    } else {
+        score_sentence
+    };
     let mut scored: Vec<(f64, usize)> = pre
         .unique_features
         .iter()
-        .map(|f| (score_sentence(f, &query_terms, query_term_count), f.original_index))
+        .map(|f| (scorer(f, &query_terms, query_term_count), f.original_index))
         .collect();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -549,5 +603,77 @@ mod tests {
     fn build_prompt_custom_system() {
         let p = build_prompt("ctx", "q", Some("Custom system."));
         assert!(p.starts_with("Custom system."));
+    }
+
+    // sketch scoring ----------------------------------------------------------
+
+    #[test]
+    fn sketch_score_non_negative() {
+        let feat = SentenceFeatures {
+            text: "Rust is a systems programming language.".to_string(),
+            token_count: 6,
+            unique_terms: ["rust", "systems", "programming", "language"]
+                .iter().map(|s| s.to_string()).collect(),
+            is_boilerplate: false,
+            original_index: 0,
+        };
+        let query: HashSet<String> = ["rust", "language"].iter().map(|s| s.to_string()).collect();
+        let score = score_sentence_sketch(&feat, &query, 2);
+        assert!(score >= 0.0, "sketch score must be non-negative");
+    }
+
+    #[test]
+    fn sketch_score_identical_terms() {
+        let terms: HashSet<String> = ["alpha", "beta", "gamma"]
+            .iter().map(|s| s.to_string()).collect();
+        let feat = SentenceFeatures {
+            text: "alpha beta gamma".to_string(),
+            token_count: 3,
+            unique_terms: terms.clone(),
+            is_boilerplate: false,
+            original_index: 0,
+        };
+        let score = score_sentence_sketch(&feat, &terms, 3);
+        // With identical terms, sketch cosine similarity should be 1.0
+        // overlap_score = (3*2) + (3/3) + min(3,40)/40 = 6 + 1 + 0.075 = 7.075
+        // final = 7.075 * 0.7 + 1.0 * 0.3 = 4.9525 + 0.3 = 5.2525
+        assert!(score > 5.0, "identical terms should yield high score, got {score}");
+    }
+
+    #[test]
+    fn sketch_score_no_overlap() {
+        let feat = SentenceFeatures {
+            text: "cats dogs".to_string(),
+            token_count: 2,
+            unique_terms: ["cats", "dogs"].iter().map(|s| s.to_string()).collect(),
+            is_boilerplate: false,
+            original_index: 0,
+        };
+        let query: HashSet<String> = ["rust", "language"].iter().map(|s| s.to_string()).collect();
+        let score = score_sentence_sketch(&feat, &query, 2);
+        // No term overlap; sketch similarity may be 0 if hash buckets don't collide.
+        // The only contribution is the length score component.
+        assert!(score < 1.0, "no overlap should yield low score, got {score}");
+    }
+
+    #[test]
+    fn sketch_mode_compresses_without_panic() {
+        let ctx = "Rust is fast. Python is slow. Java is verbose. Go is simple.";
+        let opts = CompressContextOptions {
+            use_sketch: true,
+            max_sentences: 2,
+            ..Default::default()
+        };
+        let result = compress_context(ctx, "fast language", opts);
+        assert!(result.n_kept_sentences <= 2);
+        assert!(!result.compressed.is_empty());
+    }
+
+    #[test]
+    fn cosine_similarity_unit() {
+        let a = build_sketch(&["hello".to_string()].into_iter().collect());
+        let b = build_sketch(&["hello".to_string()].into_iter().collect());
+        let sim = cosine_similarity(&a, &b);
+        assert!((sim - 1.0).abs() < 1e-10, "same vector should have cosine 1.0");
     }
 }

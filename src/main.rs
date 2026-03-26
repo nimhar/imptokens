@@ -70,6 +70,30 @@ struct Cli {
     #[arg(long, default_value_t = 500)]
     hook_threshold: usize,
 
+    // ── Logprob mode enhancements ───────────────────────────────────────────
+    /// Use quantized log-softmax for faster (slightly less precise) scoring.
+    #[arg(long)]
+    fast_scoring: bool,
+
+    /// Use two-stage filtering: coarse pass removes obvious noise, then
+    /// fine pass uses context-aware scoring. Overrides --threshold / --keep-ratio.
+    #[arg(long)]
+    two_stage: bool,
+
+    /// Coarse threshold for two-stage filtering (default: -0.01).
+    /// Tokens with logprob above this are dropped in the first pass.
+    #[arg(long, default_value_t = -0.01)]
+    coarse_threshold: f32,
+
+    /// Fine threshold for two-stage filtering (default: -1.0).
+    #[arg(long, default_value_t = -1.0)]
+    fine_threshold: f32,
+
+    /// Context alpha for two-stage filtering (default: 0.3).
+    /// Weight of surrounding-token surprise bonus.
+    #[arg(long, default_value_t = 0.3)]
+    context_alpha: f32,
+
     // ── Sentence mode ─────────────────────────────────────────────────────────
     /// Use sentence-level query-relevant compression instead of logprob scoring.
     /// No model required. Sentences are scored by term overlap with --query.
@@ -89,6 +113,10 @@ struct Cli {
     /// Maximum sentences to keep in sentence mode.
     #[arg(long, default_value_t = 10)]
     max_sentences: usize,
+
+    /// Use hash-based sketch scoring for sentence mode (distributional similarity).
+    #[arg(long)]
+    sketch_sentences: bool,
 
     // ── Claude Code setup ─────────────────────────────────────────────────────
     /// Wire imptokens into Claude Code as a UserPromptSubmit hook.
@@ -282,6 +310,7 @@ fn run_sentence_mode(cli: &Cli) -> anyhow::Result<()> {
     let opts = CompressContextOptions {
         target_reduction: cli.target_reduction,
         max_sentences: cli.max_sentences,
+        use_sketch: cli.sketch_sentences,
         ..Default::default()
     };
 
@@ -407,7 +436,13 @@ fn run_check(cli: &Cli) -> anyhow::Result<()> {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn build_compressor(cli: &Cli) -> anyhow::Result<Compressor> {
-    let strategy = if let Some(r) = cli.keep_ratio {
+    let strategy = if cli.two_stage {
+        Strategy::TwoStage {
+            coarse_threshold: cli.coarse_threshold,
+            fine_threshold: cli.fine_threshold,
+            context_alpha: cli.context_alpha,
+        }
+    } else if let Some(r) = cli.keep_ratio {
         if !(0.0 < r && r <= 1.0) {
             bail!("--keep-ratio must be in (0, 1]");
         }
@@ -416,7 +451,8 @@ fn build_compressor(cli: &Cli) -> anyhow::Result<Compressor> {
         Strategy::FixedThreshold(cli.threshold.unwrap_or(-1.0))
     };
 
-    let backend = LlamaCppBackend::new().context("failed to initialise llama.cpp backend")?;
+    let mut backend = LlamaCppBackend::new().context("failed to initialise llama.cpp backend")?;
+    backend.fast_scoring = cli.fast_scoring;
     Ok(Compressor::new(Box::new(backend), strategy))
 }
 

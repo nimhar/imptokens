@@ -5,6 +5,7 @@ use anyhow::Context;
 use crate::backend::Backend;
 use crate::result::CompressResult;
 use crate::threshold;
+use crate::two_stage;
 
 /// Strategy for deciding which tokens to keep.
 #[derive(Clone, Copy)]
@@ -15,6 +16,13 @@ pub enum Strategy {
     TargetRatio(f32),
     /// Keep exactly `n` of the most surprising scored tokens.
     TargetCount(usize),
+    /// Two-stage filtering: coarse pass removes obvious noise, fine pass
+    /// uses context-aware scoring.
+    TwoStage {
+        coarse_threshold: f32,
+        fine_threshold: f32,
+        context_alpha: f32,
+    },
 }
 
 impl Default for Strategy {
@@ -57,6 +65,14 @@ impl Compressor {
             Strategy::FixedThreshold(t) => threshold::fixed_threshold(&scored.logprobs, t),
             Strategy::TargetRatio(r) => threshold::target_ratio(&scored.logprobs, r),
             Strategy::TargetCount(n) => threshold::target_count(&scored.logprobs, n),
+            Strategy::TwoStage { coarse_threshold, fine_threshold, context_alpha } => {
+                two_stage::two_stage_filter(
+                    &scored.logprobs,
+                    coarse_threshold,
+                    fine_threshold,
+                    context_alpha,
+                )
+            }
         };
 
         Ok(CompressResult::new(
